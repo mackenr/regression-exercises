@@ -1,10 +1,70 @@
-from rcm_library import *
+import os
+import env
+
+
+import numpy as np
+import seaborn as sns
+import scipy.stats as stats
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from sympy import *
+# import pydataset
+
+import seaborn as sns
+from sympy.matrices import Matrix
+from IPython.display import display
+
+from functools import reduce
+from itertools import combinations , product
 from scipy.stats import zscore
 from sklearn.impute import SimpleImputer
 
 
 
 
+
+
+def remove_outliers_v2(df, k, col_list):
+    ''' remove outliers from a list of columns in a dataframe 
+        and return that dataframe
+    '''
+    # Create a column that will label our rows as containing an outlier value or not
+    num_obs = df.shape[0]
+    df['outlier'] = False
+    for col in col_list:
+
+        q1, q3 = df[col].quantile([.25, .75])  # get quartiles
+        
+        iqr = q3 - q1   # calculate interquartile range
+        
+        upper_bound = q3 + k * iqr   # get upper bound
+        lower_bound = q1 - k * iqr   # get lower bound
+
+        # update the outlier label any time that the value is outside of boundaries
+        df['outlier'] = np.where(((df[col] < lower_bound) | (df[col] > upper_bound)) & (df.outlier == False), True, df.outlier)
+    
+    df = df[df.outlier == False]
+  
+    print(f"Number of observations removed: {num_obs - df.shape[0]}")
+        
+    return df
+
+def get_db_url(db, env_file=env):
+    '''
+    returns a formatted string ready to utilize as a sql url connection
+
+    args: db: a string literal representing a schema
+    env_file: bool: checks to see if there is an env.py present in the cwd
+
+    make sure that if you have an env file that you import it outside of the scope 
+    of this function call, otherwise env.user wont mean anything ;)
+    '''
+    if env_file:
+        username, password, host = (env.username, env.password, env.host)
+        return f'mysql+pymysql://{username}:{password}@{host}/{db}'
+    else:
+        return 'yo you need some credentials to access a database usually and I dont want you to type them here.'
 
 def new_zillow_2017():
     schema='zillow'
@@ -58,18 +118,30 @@ def get_zillow_2017():
     return df
 
 
-def prep_zillow_2017():
+def prep_zillow_2017(k):
     df=get_zillow_2017()
+    x1=len(df)
+    
+    cols=df.columns.to_list()
+    
+    df=remove_outliers_v2(df=df, k=k, col_list=cols)
+    df.drop(columns=['outlier'],inplace=True)
 
     ## Assuming worst case that each NaN is indepedent we drop one percent of our data, so we will drop all is null
-    x1=len(df)
+
     df.dropna(inplace=True)
-    x2=len(df)
-    percentchangeafterdrop=round(((x2-x1)/x1)*100,2)
-    print(f'Actual percent chage after droping null rows:\n{percentchangeafterdrop:.2f}%')
+   
+
     ## Actual Percent Change
+    
     x=df.yearbuilt.apply(decademap)
     df['decade']=x
+    
+   
+    x2=len(df)
+    percentchangeafterdrop=round(((x2-x1)/x1)*100,2)
+    meankurt=df.kurt().mean()
+    display(print(f'This is our percent change after removing all the outliers and then the nulls:\n {percentchangeafterdrop}%\nmean kurt:\n{meankurt}'))
     return df
     
 
@@ -146,3 +218,9 @@ def decademap(x):
     elif x >= yearsgrouped[0]:
         decade=0
         return decade
+
+
+
+
+
+
