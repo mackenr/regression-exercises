@@ -25,6 +25,46 @@ from sklearn.model_selection import train_test_split
 
 
 
+def sql_database_info_probe(schema_input='zillow'):
+    '''
+    returns a list of tables
+
+
+    '''
+
+    schema = schema_input
+
+    query_1 = f'''
+    SELECT table_schema "Database Name",
+    ROUND(SUM(data_length + index_length) / 1024 / 1024, 4) "DB Size in (MB)" 
+    FROM information_schema.tables
+    WHERE table_schema= "{schema}" 
+    GROUP BY table_schema
+    ;
+    '''
+
+    query_2 = f'''
+    SELECT table_name AS "Tables",
+    ROUND(((data_length + index_length) / 1024 / 1024), 4) AS "Size (MB)"
+    FROM information_schema.TABLES
+    WHERE table_schema = "{schema}"
+    ORDER BY (data_length + index_length) DESC;
+    '''
+
+    info1 = pd.read_sql(query_1, get_db_url(schema))
+    info2 = pd.read_sql(query_2, get_db_url(schema))
+
+    display(f'In {schema} your overlall size(MB) is:', info1)
+    tablenames = [x[0] for x in [list(i) for i in info2.values]]
+    display(
+        f'In {schema} you have the following table names and their sizes:', info2)
+    x = [(pd.read_sql(f'describe {x}', get_db_url(schema)))for x in tablenames]
+    [display(sympify(f'{(tablenames[i]).capitalize()}'), k)
+     for i, k in enumerate(x)]
+    y = [(i.Field).str.split() for i in x]
+    return y
+
+
 
 def remove_outliers_v2(df, k, col_list):
     ''' remove outliers from a list of columns in a dataframe 
@@ -65,16 +105,20 @@ def get_db_url(db, env_file=env):
         username, password, host = (env.username, env.password, env.host)
         return f'mysql+pymysql://{username}:{password}@{host}/{db}'
     else:
-        return 'yo you need some credentials to access a database usually and I dont want you to type them here.'
+        return 'you need some credentials to access a database usually and I dont want you to type them here.'
 
 def new_zillow_2017():
     schema='zillow'
 
     query='''
     select
-    bedroomcnt, bathroomcnt, calculatedfinishedsquarefeet, taxvaluedollarcnt, yearbuilt, taxamount, fips
+    prop.id, bedroomcnt, bathroomcnt, calculatedfinishedsquarefeet, taxvaluedollarcnt, yearbuilt,fips,logerror
     from
-    properties_2017
+    properties_2017 prop
+    join
+    predictions_2017 pred
+    on 
+    prop.id = pred.id
     where
     (propertylandusetypeid=261	
     or
@@ -119,7 +163,14 @@ def get_zillow_2017():
     return df
 
 
-def prep_zillow_2017(k):
+
+def prep_zillow_2017(k=1.25,random_state=123,sizearr=[.2,.3],dftarget='taxvaluedollarcnt'):
+    '''
+    returns splitArr=[X_train, y_train, X_validate, y_validate, X_test, y_test]
+    
+    
+    
+    '''
     df=get_zillow_2017()
     x1=len(df)
     
@@ -143,7 +194,24 @@ def prep_zillow_2017(k):
     percentchangeafterdrop=round(((x2-x1)/x1)*100,2)
     meankurt=df.kurt().mean()
     display(print(f'This is our percent change after removing all the outliers and then the nulls:\n {percentchangeafterdrop}%\nmean kurt:\n{meankurt}'))
-    return df
+    df['bathdividesbed']=df.bedroomcnt/df.bathroomcnt
+    df['beddividestaxval']=df.taxvaluedollarcnt/df.bedroomcnt
+    df['bathdividestaxval']=df.taxvaluedollarcnt/df.bathroomcnt
+    df['areadividestaxval']=df.taxvaluedollarcnt/df.calculatedfinishedsquarefeet
+    df['bedbathbeyonddividestaxval']=df.taxvaluedollarcnt/(df.calculatedfinishedsquarefeet+df.bathroomcnt+df.bedroomcnt)
+    df['beddividesarea']=df.calculatedfinishedsquarefeet/df.bedroomcnt
+    df['bathdividesarea']=df.calculatedfinishedsquarefeet/df.bathroomcnt
+    df['bathplusbathdividesarea']=df.calculatedfinishedsquarefeet/(df.bathroomcnt+df.bedroomcnt)
+    df['bathplusbathdividesarea_dividestavval']=df.taxvaluedollarcnt/df['bathplusbathdividesarea']
+    df.fips=df.fips.astype(int)
+    df.yearbuilt=df.yearbuilt.astype(int)
+    df.rename(columns={'calculatedfinishedsquarefeet':'area'},inplace=True)
+ 
+    
+    X_train, y_train, X_validate, y_validate, X_test, y_test=train_validate_test(df=df,random_state=random_state,sizearr=sizearr,target=dftarget)
+    splitArr=[X_train, y_train, X_validate, y_validate, X_test, y_test]
+    
+    return splitArr
     
 
 
@@ -154,74 +222,114 @@ def decademap(x):
     'makes a decade col when combined with an apply function '
     yearsgrouped=np.arange(1800,2020,10)
     if x >= yearsgrouped[21]:
-        decade=21
+        decade=yearsgrouped[21]
         return decade
     elif x >= yearsgrouped[20]:
-        decade=20
+        decade=yearsgrouped[20]
         return decade
     elif x >= yearsgrouped[19]:
-        decade=19
+        decade=yearsgrouped[19]
         return decade
     elif x >= yearsgrouped[18]:
-        decade=18
+        decade=yearsgrouped[18]
         return decade
     elif x >= yearsgrouped[17]:
-        decade=17
+        decade=yearsgrouped[17]
         return decade
     elif x >= yearsgrouped[16]:
-        decade=16
+        decade=yearsgrouped[16]
         return decade
     elif x >= yearsgrouped[15]:
-        decade=15
+        decade=yearsgrouped[15]
         return decade
     elif x >= yearsgrouped[14]:
-        decade=14
+        decade=yearsgrouped[14]
         return decade
     elif x >= yearsgrouped[13]:
-        decade=13
+        decade=yearsgrouped[13]
         return decade
     elif x >= yearsgrouped[12]:
-        decade=12
+        decade=yearsgrouped[12]
         return decade
     elif x >= yearsgrouped[11]:
-        decade=11
+        decade=yearsgrouped[11]
         return decade
     elif x >= yearsgrouped[10]:
-        decade=10
+        decade=yearsgrouped[10]
         return decade
     elif x >= yearsgrouped[9]:
-        decade=9
+        decade=yearsgrouped[9]
         return decade
     elif x >= yearsgrouped[8]:
-        decade=8
+        decade=yearsgrouped[8]
         return decade
     elif x >= yearsgrouped[7]:
-        decade=7
+        decade=yearsgrouped[7]
         return decade
     elif x >= yearsgrouped[6]:
-        decade=6
+        decade=yearsgrouped[6]
         return decade
     elif x >= yearsgrouped[5]:
-        decade=5
+        decade=yearsgrouped[5]
         return decade
     elif x >= yearsgrouped[4]:
-        decade=4
+        decade=yearsgrouped[4]
         return decade
     elif x >= yearsgrouped[3]:
-        decade=3
+        decade=yearsgrouped[3]
         return decade
     elif x >= yearsgrouped[2]:
-        decade=2
+        decade=yearsgrouped[2]
         return decade
     elif x >= yearsgrouped[1]:
-        decade=1
+        decade=yearsgrouped[1]
         return decade
     elif x >= yearsgrouped[0]:
-        decade=0
+        decade=yearsgrouped[0]
         return decade
 
 
 
 
 
+def train_validate_test(df, target,sizearr=[.2,.3],random_state=123):
+    """
+    this function takes in a dataframe and splits it into 3 samples,
+    a test, which is 20% of the entire dataframe,
+    a validate, which is 24% of the entire dataframe,
+    and a train, which is 56% of the entire dataframe.
+    It then splits each of the 3 samples into a dataframe with independent variables
+    and a series with the dependent, or target variable.
+    The function returns 3 dataframes and 3 series:
+    X_train (df) & y_train (series), X_validate & y_validate, X_test & y_test.
+    """
+    # split df into test (20%) and train_validate (80%)
+    train_validate, test = train_test_split(df, test_size=sizearr[0], random_state=123)
 
+    # split train_validate off into train (70% of 80% = 56%) and validate (30% of 80% = 24%)
+    train, validate = train_test_split(train_validate, test_size=sizearr[1], random_state=123)
+
+    # split train into X (dataframe, drop target) & y (series, keep target only)
+    X_train = train.drop(columns=[target])
+    y_train = train[target]
+
+    # split validate into X (dataframe, drop target) & y (series, keep target only)
+    X_validate = validate.drop(columns=[target])
+    y_validate = validate[target]
+
+    # split test into X (dataframe, drop target) & y (series, keep target only)
+    X_test = test.drop(columns=[target])
+    y_test = test[target]
+
+    return X_train, y_train, X_validate, y_validate, X_test, y_test
+
+
+def calfipsmapper(df):
+    calfipsdf=pd.read_csv('califips.csv')
+    a=calfipsdf.columns[0]
+    b=calfipsdf.columns[1]
+    calfipsdict=dict(zip(calfipsdf[a],calfipsdf[b]))
+    df['county']= df["fips"].map(calfipsdict)
+    df.county=df.county.map({' Los Angeles County':'LA',' Orange County':'Orange'})
+    df.rename(columns={'calculatedfinishedsquarefeet':'area'},inplace=True)
+    return df
