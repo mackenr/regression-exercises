@@ -208,10 +208,9 @@ def prep_zillow_2017(k=1.25,random_state=123,sizearr=[.2,.3],dftarget='taxvalued
     df.rename(columns={'calculatedfinishedsquarefeet':'area'},inplace=True)
  
     
-    X_train, y_train, X_validate, y_validate, X_test, y_test=train_validate_test(df=df,random_state=random_state,sizearr=sizearr,target=dftarget)
-    splitArr=[X_train, y_train, X_validate, y_validate, X_test, y_test]
+   
     
-    return splitArr
+    return df
     
 
 
